@@ -290,24 +290,8 @@ Template.moveSelectionPopup.helpers({
     return Template.instance().selectedListId.get() === listId;
   },
   isTitleDefault(title) {
-    if (
-      title.startsWith("key 'default") &&
-      title.endsWith('returned an object instead of string.')
-    ) {
-      const translated = `${TAPi18n.__('defaultdefault')}`;
-      if (
-        translated.startsWith("key 'default") &&
-        translated.endsWith('returned an object instead of string.')
-      ) {
-        return 'Default';
-      }
-      return translated;
-    }
-    if (title === 'Default') {
-      return `${TAPi18n.__('defaultdefault')}`;
-    }
-    return title;
-  },
+    return Utils.isTitleDefault(title);
+  }
 });
 
 Template.moveSelectionPopup.events({
@@ -440,25 +424,9 @@ Template.copySelectionPopup.helpers({
     return Template.instance().selectedListId.get() === listId;
   },
   isTitleDefault(title) {
-    if (
-      title.startsWith("key 'default") &&
-      title.endsWith('returned an object instead of string.')
-    ) {
-      const translated = `${TAPi18n.__('defaultdefault')}`;
-      if (
-        translated.startsWith("key 'default") &&
-        translated.endsWith('returned an object instead of string.')
-      ) {
-        return 'Default';
-      }
-      return translated;
+    return Utils.isTitleDefault(title);
     }
-    if (title === 'Default') {
-      return `${TAPi18n.__('defaultdefault')}`;
-    }
-    return title;
-  },
-});
+    });
 
 Template.copySelectionPopup.events({
   'change .js-select-boards'(event) {

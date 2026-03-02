@@ -871,6 +871,7 @@ BlazeComponent.extendComponent({
 BlazeComponent.extendComponent({
   onCreated() {
     this.currentBoard = Utils.getCurrentBoard();
+    this.optionLists = new ReactiveVar(this.listsForSelectedBoard(this.currentBoard?.subtasksDefaultBoardId));
   },
 
   allowsSubtasks() {
@@ -885,8 +886,8 @@ BlazeComponent.extendComponent({
     return this.currentBoard.allowsReceivedDate;
   },
 
-  isBoardSelected() {
-    return this.currentBoard.subtasksDefaultBoardId === this.currentData()._id;
+  isBoardSelected(boardId) {
+    return this.currentBoard.subtasksDefaultBoardId === boardId;
   },
 
   isNullBoardSelected() {
@@ -910,9 +911,16 @@ BlazeComponent.extendComponent({
   },
 
   lists() {
+    return this.optionLists.get();
+  },
+  hasLists() {
+    return this.lists().length > 0;
+  },
+
+  listsForSelectedBoard(boardId) {
     return ReactiveCache.getLists(
       {
-        boardId: this.currentBoard._id,
+        boardId: boardId,
         archived: false,
       },
       {
@@ -921,12 +929,8 @@ BlazeComponent.extendComponent({
     );
   },
 
-  hasLists() {
-    return this.lists().length > 0;
-  },
-
-  isListSelected() {
-    return this.currentBoard.subtasksDefaultBoardId === this.currentData()._id;
+  isListSelected(listId) {
+    return ReactiveCache.getBoard(this.currentBoard.subtasksDefaultBoardId).subtasksDefaultListId === listId;
   },
 
   presentParentTask() {
@@ -954,11 +958,13 @@ BlazeComponent.extendComponent({
           );
         },
         'change .js-field-deposit-board'(evt) {
-          let value = evt.target.value;
-          if (value === 'null') {
-            value = null;
+          let boardId = evt.target.value;
+          if (boardId === 'null') {
+            boardId = null;
           }
-          this.currentBoard.setSubtasksDefaultBoardId(value);
+          this.currentBoard.setSubtasksDefaultBoardId(boardId);
+          // so lists belong to the selected board*
+          this.optionLists.set(this.listsForSelectedBoard(boardId));
           evt.preventDefault();
         },
         'change .js-field-deposit-list'(evt) {

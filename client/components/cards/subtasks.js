@@ -1,14 +1,75 @@
 import { ReactiveCache } from '/imports/reactiveCache';
 import { FlowRouter } from 'meteor/ostrio:flow-router-extra';
 
+const { calculateIndexData } = Utils;
+
+// #FIXME a lot of duplication with checklists, maybe could be factorized
 BlazeComponent.extendComponent({
+  subtaskCard($parentDOM) {
+    if (!$parentDOM) { return }
+    const subtaskNode = $parentDOM.find('.subtask').get(0);
+    if (!subtaskNode) { return }
+    return Blaze.getData(subtaskNode)?.subtask;
+  },
+  initSorting() {
+    // #FIXME I poorly coded trying to make existing code work
+    const items = this.$(this.itemSelector).parent();
+    const self = this;
+    items.mousedown(function (evt) {
+      evt.stopPropagation();
+    });
+    items.sortable({
+      tolerance: 'pointer',
+      helper: 'clone',
+      items: '.js-subtasks-item:not(.placeholder)',
+      connectWith: '.js-subtasks',
+      appendTo: 'parent',
+      distance: 7,
+      placeholder: 'subtask placeholder',
+      handle: self.handleSelector,
+      scroll: true,
+      start(evt, ui) {
+        ui.placeholder.height(ui.helper.height());
+        EscapeActions.clickExecute(evt.target, 'inlinedForm');
+      },
+      stop(evt, ui) {
+        const prevSubtask = self.subtaskCard(ui.item.prev('.js-subtasks-item'));
+        let nextSubtask = self.subtaskCard(ui.item.next('.js-subtasks-item'));
+        const nItems = 1;
+        const sortIndex = calculateIndexData(prevSubtask, nextSubtask, nItems);
+        const subtask = self.subtaskCard(ui.item);
+        if (subtask) {
+          subtask.move(subtask.boardId, subtask.swimlaneId, subtask.listId, sortIndex.base);
+        }
+        items.sortable('cancel');
+      },
+    });
+  },
+  onRendered() {
+    this.handleSelector = Utils.isMiniScreen() ? 'span.fa.subtaskitem-handle' : '.item-title';
+    this.itemSelector = '.js-subtasks-item';
+    this.initSorting();
+    // Disable sorting if the current user is not a board member
+    this.autorun(() => {
+      const disabled = !ReactiveCache.getCurrentUser()?.isBoardMember();
+      const items = this.$(this.itemSelector);
+      if (items.data('uiSortable') || items.data('sortable')) {
+        items.sortable('option', 'disabled', disabled);
+      }
+    });
+  },
   addSubtask(event) {
     event.preventDefault();
-    const textarea = this.find('textarea.js-add-subtask-item');
+    const textarea = this.find('.js-add-subtask textarea');
     const title = textarea.value.trim();
     const cardId = this.currentData().cardId;
     const card = ReactiveCache.getCard(cardId);
-    const sortIndex = -1;
+    const subtasks = this.$(this.itemSelector) || [];
+    let sortIndex = 0;
+    if (subtasks.length > 0) {
+      const subtask = this.subtaskCard(subtasks.last());
+      sortIndex = Utils.calculateIndexData(subtask, null).base;
+    }
     const crtBoard = ReactiveCache.getBoard(card.boardId);
     const targetBoard = crtBoard.getDefaultSubtasksBoard();
     const listId = targetBoard.getDefaultSubtasksListId();
@@ -18,16 +79,14 @@ BlazeComponent.extendComponent({
       boardId: crtBoard._id,
       _id: card.swimlaneId,
     });
-    //find the swimlane of the same name in the target board.
-    const targetSwimlane = ReactiveCache.getSwimlane({
+    // if no list specified, find the swimlane of the same name in the target board.
+    let targetSwimlane = ReactiveCache.getSwimlane({_id: ReactiveCache.getList(listId)?.swimlaneId});
+    targetSwimlane ??= ReactiveCache.getSwimlane({
       boardId: targetBoard._id,
       title: parentSwimlane.title,
     });
-    //If no swimlane with a matching title exists in the target board, fall back to the default swimlane.
-    const swimlaneId =
-      targetSwimlane === undefined
-        ? targetBoard.getDefaultSwimline()._id
-        : targetSwimlane._id;
+    //If no swimlane with a matching title exists in the target board, create one
+    targetSwimlane ??= targetBoard.getDefaultSwimline();
 
     const nextCardNumber = targetBoard.getNextCardNumber();
 
@@ -41,7 +100,7 @@ BlazeComponent.extendComponent({
         listId,
         boardId: targetBoard._id,
         sort: sortIndex,
-        swimlaneId,
+        swimlaneId: targetSwimlane._id,
         type: 'cardType-card',
         cardNumber: nextCardNumber
       });
@@ -60,6 +119,8 @@ BlazeComponent.extendComponent({
     }
     textarea.value = '';
     textarea.focus();
+
+    this.initSorting();
   },
 
   async deleteSubtask() {
@@ -69,8 +130,27 @@ BlazeComponent.extendComponent({
     }
   },
 
-  isBoardAdmin() {
-    return ReactiveCache.getCurrentUser().isBoardAdmin();
+  currentCard() {
+    // prefer relying on the actual current card rather than on the "current" card
+    // before the two was the same because only one popup/card detail could be opened
+    return ReactiveCache.getCard(this.data().cardId);
+  },
+
+  events() {
+    return [
+      {
+        'submit .js-add-subtask': this.addSubtask,
+      },
+    ];
+  },
+}).register('subtasks');
+
+BlazeComponent.extendComponent({
+  async toggleItem() {
+    const item = this.currentData().subtask;
+    if (item && item._id) {
+      await item.toggleSubtaskFinishedStatus();
+    }
   },
 
   async editSubtask(event) {
@@ -80,57 +160,35 @@ BlazeComponent.extendComponent({
     const subtask = this.currentData().subtask;
     await subtask.setTitle(title);
   },
-
-  pressKey(event) {
-    //If user press enter key inside a form, submit it
-    //Unless the user is also holding down the 'shift' key
-    if (event.keyCode === 13 && !event.shiftKey) {
-      event.preventDefault();
-      const $form = $(event.currentTarget).closest('form');
-      $form.find('button[type=submit]').click();
-    }
-  },
-
   events() {
+    // previously these events were catched in the parent component,
+    // which manages the list. however, this was a problem because
+    // the clicked component was within the parent, thus not having
+    // access to the subtask particular data. This should be
+    // more understandable in the subtask's component.
     return [
       {
-        'click .js-open-subtask-details-menu': Popup.open('subtaskActions'),
-        'submit .js-add-subtask': this.addSubtask,
+        'click .js-open-subtask-details-menu'(e) {
+          Popup.open('subtaskActions')(e, { forceData: this});
+        },
+        'click .js-delete-subtask': this.deleteSubtask,
         'submit .js-edit-subtask-title': this.editSubtask,
-        'click .js-delete-subtask-item': this.deleteSubtask,
-        keydown: this.pressKey,
-      },
-    ];
-  },
-}).register('subtasks');
+        'click .js-subtask-title .check-box': this.toggleItem,
+      }
+    ]
+  }
+}).register('subtaskDetail');
 
 BlazeComponent.extendComponent({
-  async toggleItem() {
-    const item = this.currentData().item;
-    if (item && item._id) {
-      await item.toggleItem();
-    }
-  },
-  events() {
-    return [
-      {
-        'click .js-subtasks-item .check-box-unicode': this.toggleItem,
-      },
-    ];
-  },
-}).register('subtaskItemDetail');
-
-BlazeComponent.extendComponent({
-  isBoardAdmin() {
-    return ReactiveCache.getCurrentUser().isBoardAdmin();
-  },
   events() {
     return [
       {
         'click .js-view-subtask'(event) {
+          // data() = component of clicked subtask
           if ($(event.target).hasClass('js-view-subtask')) {
-            const subtask = this.currentData().subtask;
+            const subtask = this.data().subtask;
             const board = subtask.board();
+            //
             FlowRouter.go('card', {
               boardId: board._id,
               slug: board.slug,
@@ -140,9 +198,8 @@ BlazeComponent.extendComponent({
         },
         'click .js-delete-subtask' : Popup.afterConfirm('subtaskDelete', async function () {
           Popup.back(2);
-          const subtask = this.subtask;
-          if (subtask && subtask._id) {
-            await subtask.archive();
+          if (this.subtask && this.subtask._id) {
+            await this.subtask.archive();
           }
         }),
       }
@@ -150,13 +207,11 @@ BlazeComponent.extendComponent({
   }
 }).register('subtaskActionsPopup');
 
-Template.editSubtaskItemForm.helpers({
+BlazeComponent.extendComponent({
   user() {
     return ReactiveCache.getUser(this.userId);
   },
   isBoardAdmin() {
     return ReactiveCache.getCurrentUser().isBoardAdmin();
   },
-});
-
-
+}).register('editSubtaskItemForm');

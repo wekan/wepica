@@ -1,6 +1,40 @@
 .js-add-subtask {
   color: #8c8c8c;
 }
+.subtask {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  .subtask-title, .subtask-controls {
+    display: grid;
+    gap: var(--space-2xs);
+    grid-template-columns: repeat(2, min-content);
+  }
+  .subtask-title {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    .item-title.is-finished p {
+      color: #8c8c8c;
+      font-style: italic;
+      text-decoration: line-through;
+    }
+  }
+}
+.card-subtasks-items {
+  padding: 0.5lh;
+  margin: 0.5lh 0;
+  background-color: #f7f7f7;
+}
+.subtask-item {
+  &.placeholder {
+    background: #ccc;
+    border-radius: 2px;
+  }
+}
+.subtask-container:hover {
+  background-color: #ebebeb;
+}
 textarea.js-add-subtask-item,
 textarea.js-edit-subtask-item {
   overflow: hidden;
@@ -9,14 +43,12 @@ textarea.js-edit-subtask-item {
 }
 .delete-text,
 .subtask-title .js-delete-subtask,
-.subtask-title .js-view-subtask,
-.js-delete-subtask-item {
+.subtask-title .js-view-subtask {
   color: #8c8c8c;
 }
 .delete-text:hover,
 .subtask-title .js-delete-subtask:hover,
-.subtask-title .js-view-subtask:hover,
-.js-delete-subtask-item:hover {
+.subtask-title .js-view-subtask:hover {
   color: inherit;
 }
 .subtask-title .checkbox {
@@ -26,8 +58,11 @@ textarea.js-edit-subtask-item {
 
   line-height: 30px;
 }
+.subtask-title:has(.inlined-form) {
+  grid-template-columns: subgrid;
+  padding-right: var(--space-s);
+}
 .subtask-title .title {
-
   line-height: 25px;
 }
 .subtask-title .subtasks-stat {
@@ -95,7 +130,12 @@ textarea.js-edit-subtask-item {
 .subtasks {
   background: #f7f7f7;
 }
-.subtasks.placeholder {
+.card-subtasks-hint {
+  font-style: italic;
+  font-size: var(--step--1);
+  font-weight: normal;
+}
+.subtask.placeholder {
   background: #ccc;
   border-radius: 2px;
 }
@@ -103,61 +143,4 @@ textarea.js-edit-subtask-item {
   box-shadow: -2px 2px 8px rgba(0,0,0,0.3), 0 0 1px rgba(0,0,0,0.5);
   transform: rotate(4deg);
   cursor: grabbing;
-}
-.subtasks-item {
-  margin: 0 0 0 0.1em;
-  line-height: 18px;
-  font-size: 1.1em;
-  margin-top: 3px;
-  display: flex;
-  background: #f7f7f7;
-}
-.subtasks-item.placeholder {
-  background: #ccc;
-  border-radius: 2px;
-}
-.subtasks-item.ui-sortable-helper {
-  box-shadow: -2px 2px 8px rgba(0,0,0,0.3), 0 0 1px rgba(0,0,0,0.5);
-  transform: rotate(4deg);
-  cursor: grabbing;
-}
-.subtasks-item:hover {
-  background-color: #ebebeb;
-}
-.subtasks-item .check-box {
-  margin: 0.1em 0 0 0;
-}
-.subtasks-item .check-box.is-checked {
-  border-bottom: 0.2ch solid #3cb500;
-  border-right: 2px solid #3cb500;
-}
-/* Unicode checkbox icons styling */
-.subtasks-item .check-box-unicode {
-  font-size: 1.3em;
-  margin-right: 8px;
-  cursor: pointer;
-  display: inline-block;
-  vertical-align: middle;
-  line-height: 1;
-}
-/* Grey checkmarks when grey icons setting is enabled */
-body.grey-icons-enabled .subtasks-item .check-box.is-checked {
-  border-bottom: 2px solid #7a7a7a;
-  border-right: 2px solid #7a7a7a;
-}
-body.grey-icons-enabled .subtasks-item .check-box-unicode {
-  filter: grayscale(100%);
-  -webkit-filter: grayscale(100%);
-  opacity: 0.85;
-}
-.subtasks-item .item-title {
-  flex: 1;
-  padding-left: 10px;
-}
-.subtasks-item .item-title.is-checked {
-  color: #8c8c8c;
-  font-style: italic;
-}
-.subtasks-item .item-title .viewer p {
-  margin-bottom: 2px;
 }

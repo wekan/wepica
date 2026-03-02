@@ -34,6 +34,14 @@ class PopupDetachedComponent extends BlazeComponent {
     this.closeDOMs.push("click .js-close-detached-popup");
     // Also try to be smart...
     this.closeDOMs.push("click .js-close");
+
+    // Custom hook
+    this.afterCreated?.(this);
+    if (this.customAutorun) {
+      this.autorun(() => {
+        this.customAutorun(this);
+      });
+    }
   }
 
   // Main intent of this component is to have a modular popup with defaults:
@@ -58,13 +66,15 @@ class PopupDetachedComponent extends BlazeComponent {
     this.observers = [this.follow(), this.resize()];
 
     $(window).on('resize', () => {
-      this.cssResized = false;
+      this.minimize();
       this.draw();
     });
+
+    this.afterRendered?.(this);
   }
 
   draw() {
-    if (!this.isRendered()) {return;}
+    if (!this.isRendered()) {return}
     if (!this.initialWidthRatio || !this.initialHeightRatio) {
       // Enables us to shrink when window goes little then big
       // Othewise no easy way to know; easier to get shrinked
@@ -82,6 +92,7 @@ class PopupDetachedComponent extends BlazeComponent {
         this.sticky = true;
       }
     }
+
     // In practice, this should only influence the positionning of the popup and its
     // ability to be rendered off-screen. The sizing is done regarding the unconstraigned
     // popup size within its current context, so if it depends on viewport-related units,
@@ -206,10 +217,6 @@ class PopupDetachedComponent extends BlazeComponent {
     return structuredClone(this.popupDims);
   }
 
-  isFullscreen() {
-    return this.fullscreen;
-  }
-
   maximize() {
     if (!this.fullscreen) {
       this.fullscreen = true;
@@ -284,12 +291,16 @@ class PopupDetachedComponent extends BlazeComponent {
   toFront() {
     if (!this.isRendered() || !this.firstNode()) {return}
     this.currentZ(Math.max(...PopupComponent.stack.map(p => p.outerComponent.currentZ())) + 1);
-
+    this.afterToFront?.(this);
   }
 
   toBack() {
     if (!this.isRendered() || !this.firstNode()) {return}
     this.currentZ(Math.min(...PopupComponent.stack.map(p => p.outerComponent.currentZ())) + 1);
+  }
+
+  destroy(userClose) {
+    this.controlComponent.destroy(false, userClose);
   }
 
   events() {
@@ -299,7 +310,7 @@ class PopupDetachedComponent extends BlazeComponent {
         // make sure that we are really the target, just in case; popup can be
         // really frustrating when not behaving as expected
         if (PopupComponent.findParentPopup(event.target) === this) {
-          this.controlComponent.destroy();
+          this.destroy(true);
         }
       }
     })
@@ -319,17 +330,23 @@ class PopupDetachedComponent extends BlazeComponent {
         }
       },
       // bad heuristic but only for best-effort UI
-      'pointerdown .pop-over'() {
+      // narrowed down to popup with headers for now
+      'pointerdown .pop-over .header'() {
         // Useful to do it now in case of dragging
         this.toFront();
         this.pointerDown = true;
       },
-      'pointerup .pop-over'() {
+      'pointerup .pop-over .header'() {
         this.pointerDown = false;
       }
     };
 
     const movePopup = (event) => {
+      event = event.originalEvent;
+      // Ignore right-ish clicks
+      if (!(event.isPrimary && (event.pointerType !== 'mouse' || event.button === 0))) {
+        return;
+      }
       event.preventDefault();
       const deltaHandleX = this.dims().left - event.pageX;
       const deltaHandleY = this.dims().top - event.pageY;
@@ -370,7 +387,7 @@ class PopupDetachedComponent extends BlazeComponent {
 
   computeMaxDims() {
     if (!this.isRendered()) {return;}
-    if (this.cssResized) {return {width: this.referenceWidth, height: this.referenceHeight}}
+    if (this.cssResized && !this.fullscreen) {return {width: this.referenceWidth, height: this.referenceHeight}}
     // Get size of inner content, even if it overflows
     const content = this.find('.content');
     let popupHeight = content?.scrollHeight;
@@ -380,7 +397,15 @@ class PopupDetachedComponent extends BlazeComponent {
       popupHeight += headerRect.scrollHeight;
       popupWidth = Math.max(popupWidth, headerRect.scrollWidth)
     }
-    return { width: Math.max(popupWidth, $(this.popup).width()), height: Math.max(popupHeight, $(this.popup).height()) };
+    // some popups go naturally really wide because of inner text. make an exception for those and lie
+    let width = Math.max(popupWidth, $(this.popup).width());
+    let height = Math.max(popupHeight, $(this.popup).height());
+    if (height < window.innerHeight / 4 && width > Math.min(500, 4 * window.innerWidth / 5)) {
+      width = Math.min(300, window.innerWidth / 3);
+      $(this.popup).css('width', `${width}px`);
+      height = $(this.popup).height();
+    }
+    return { width, height };
   }
 
   placeOnSingleDimension(elementLength, openerPos, openerLength, maxLength, biases, n) {
@@ -459,19 +484,25 @@ class PopupDetachedComponent extends BlazeComponent {
     }
 
     // Coordinates of opener related to viewport
-    let { x: parentX, y: parentY } = this.nonPlaceholderOpener.getBoundingClientRect();
-    let { height: parentHeight, width: parentWidth } = this.nonPlaceholderOpener.getBoundingClientRect();
+    let { x: parentX, y: parentY } = this.nonPlaceholderDims;
+    let { height: parentHeight, width: parentWidth } = this.nonPlaceholderDims;
 
     const maxDims = this.computeMaxDims();
     let popupHeight = maxDims.height;
     let popupWidth = maxDims.width;
 
     // fullscreen have priority over stickiness, thus the use of window.innerX there
-    if (this.fullscreen || Utils.isMiniScreen() && popupWidth >= 4 * window.innerWidth / 5 && popupHeight >= 4 * window.innerHeight / 5) {
+    // 🚧 experiment: remove isMiniScreen() check; let popups be fullscreen anywhere
+    // (prefer let the people who design stuff choose)
+    // 💡 using the reference dims makes the popup go fullscreen when window shrinks,
+    // even if it shrinked because of resize observer or CSS rules
+    if (this.fullscreen || (this.referenceWidth >= 4 * window.innerWidth / 5 && this.referenceHeight >= 4 * window.innerHeight / 5)) {
       // Go fullscreen!
       popupWidth = window.innerWidth;
-      // Avoid address bar, let a bit of margin to scroll
-      popupHeight = 4 * window.innerHeight / 5;
+      // Avoid address bar (trick: https://stackoverflow.com/questions/61297303/get-max-available-browser-height-without-browser-toolbar-javascript)
+      popupHeight = document.documentElement.clientHeight || window.innerHeight - 100;
+      this.fullscreen = true;
+      $(this.popup).addClass('popup-fullscreen');
       return ({
         width: window.innerWidth,
         height: window.innerHeight,
@@ -479,6 +510,7 @@ class PopupDetachedComponent extends BlazeComponent {
         top: 0,
       });
     } else {
+      $(this.popup).removeClass('popup-fullscreen');
       let maxHeight = this.referenceViewportHeight - this.margin() * 2;
       let maxWidth = this.referenceViewportWidth - this.margin() * 2;
       let biasX, biasY;
@@ -517,6 +549,7 @@ class PopupDetachedComponent extends BlazeComponent {
         popupWidth = this.referenceViewportWidth - 2 * this.margin();
         candidateX = window.scrollX + this.margin();
       }
+
       return ({
         width: popupWidth,
         height: popupHeight,
@@ -575,6 +608,14 @@ class PopupComponent extends BlazeComponent {
 
   static findParentPopup(element) {
     return BlazeComponent.getComponentForElement($(element).closest('.pop-over')[0]);
+  }
+
+  static findPopupById(popupId) {
+    return PopupComponent.stack.filter(e => e._id === popupId);
+  }
+
+  static findPopupByName(popupName) {
+    return PopupComponent.stack.filter(e => e.name === popupName);
   }
 
   static draw(event) {
@@ -649,22 +690,25 @@ class PopupComponent extends BlazeComponent {
   }
 
   onCreated() {
-    // do not render a template with the same name and the same related data ID multiple time (also works if no ID)
-    // this heuristic works in general cases; for future edge cases, add to the whitelist
-    const maybeID = this.parentComponent?.()?.data?.()?._id;
-    const existing = PopupComponent.stack.find((e) => (e.name === this.data().name && e.parentComponent()?.data?.()?._id === maybeID));
-    if (existing && !PopupComponent.nonUniqueWhitelist.includes(existing.name)) {
-      // 💡 here, we could change the behaviour. some possibilities are:
+    // use the data ._id or a random number to identify the popup.
+    // this heuristic works in general cases; for future edge cases, add to the whitelist.
+    const dataId = this.parentComponent?.()?.data?.()?._id;
+    this._id = dataId ?? String(Math.floor(Math.random() * 10000));
+    const isoPopup = dataId ? PopupComponent.findPopupById(dataId) : PopupComponent.findPopupByName(this.name);
+    // refuse to open multiple popup with same name and no ID or same name and same ID;
+    // default is to destroy the old one and re-render the new one, as it should
+    // better reflect stuff this programmatic moves.
+    if (isoPopup.length > 0 && !PopupComponent.nonUniqueWhitelist.includes(this.name)) {
+      // 💡 here, we could change the behaviour. possibilities are:
       // 1. destroy existing popup and let the current one open
       // 2. destroy new popup and
       //    a. do nothing
       //    b. force re-rendering of existing popup
       //    c. bring other popup to front (b. includes c.)
       // ...
-      // for now we will just bring to front
-      this.destroy();
-      existing.outerComponent.toFront();
-      return;
+      for (const popup of isoPopup) {
+        popup.destroy();
+      }
     }
 
     // All of this, except name, is optional. The rest is provided "just in case", for convenience.
@@ -675,15 +719,12 @@ class PopupComponent extends BlazeComponent {
     // - showHeader can be turned off if the inner content always have a header with buttons and so on
     // - title is shown when header is shown
     // - miscOptions is for compatibility
-    // - closeVar is an optional string representing a Session variable: if set, the popup reactively closes when the variable changes and set the variable to null on close
     // - closeDOMs can be used alternatively; it is an array of "<event> <selector>" to listen that closes the popup.
     //   if header is shown, closing the popup is already managed. selector is relative to the inner template (same as its event map)
     // - handleDOM is an element who can be clicked to move popup
     //   it is useful when the content can be redimensionned/moved by code or user; we still manage events, resizes etc
     //   but enables inner elements or handles to automatically make the popup move on pointer "drag".
-    // - afterConfirm is a function to call after a click on `.js-confirm`, similar to the base popup system; whatThis is an optional
-    //   object to pass as `this` when calling the function; confirmArgs is an object whose properties will be assigned to whatThis.
-    // - onDestroy is a function which will be called previous destroying with the actual inner component as `this`.
+    // - afterConfirm is a function to call after a click on `.js-confirm`, similar to the base popup system; whatThis is an optional object to pass as `this` when calling the function; confirmArgs is an object whose properties will be assigned to whatThis.
     // - offLimits is a boolean enabling even non-sticky popups to go off the viewport limits, e.g. on handling,
     //   even if it would send the popup out of viewport.this is useful for contextual popups which feels odd when far.
     //   ❓ so far I assumed a global "no" but at the end it may be a source of frustration for users with little benefit, so I added this options
@@ -696,15 +737,21 @@ class PopupComponent extends BlazeComponent {
     //   considered more "tied" to their opener than the others, and are made sticky by default.
     //   ⚠️ fixed popups are less convenient but at least stay on screen; if my code has bug, and a form was being filled,
     //   window is resized, and popup is gone (visually), users could lose draft data.
+    // - onCreated, onRendered and onDestroyed can be hooked with the eponym args; they will be called at the end of the components'. ❗ this is passed as first arg, autorun is handle additionnally to onCreated
     const data = this.data();
     this.popupArgs = {
+      _id: this._id,
       name: data.name,
       showHeader: data.showHeader ?? true,
       title: data.title,
       openerElement: data.openerElement,
       closeDOMs: data.closeDOMs ?? [],
       handleDOM: data.handleDOM,
-      onDestroy: data.onDestroy,
+      afterCreated: data.onCreated,
+      afterRendered: data.onRendered,
+      afterDestroyed: data.onDestroyed,
+      afterToFront: data.toFront,
+      customAutorun: data.autorun,
       offLimits: data.offLimits ?? true,
       sticky: data.sticky ?? null,
       forceData: data.miscOptions?.dataContextIfCurrentDataIsUndefined || data.forceData,
@@ -722,16 +769,28 @@ class PopupComponent extends BlazeComponent {
       throw new Error(`template and/or component ${this.name} not found`);
     }
 
-    // If arg is not set, must be closed manually by calling destroy()
-    if (this.popupArgs.closeVar) {
-      this.closeInitialValue = Session.get(this.data().closeVar);
-      if (!this.closeInitialValue === undefined) {
-        this.autorun(() => {
-          if (Session.get(this.data().closeVar) !== this.closeInitialValue) {
-            this.onDestroyed();
-          }
-        });
-      }
+    // We close a potential opened popup on any left click on the document, or go
+    // one step back by pressing escape.
+    for (const action of ['back', 'close']) {
+      const self = this;
+      EscapeActions.register(
+        // hard-coded in escapeActions.js
+        `popup-${action}`,
+        () => self.destroy,
+        // For clicks, only trigger escape when click is outside any popup
+        (target) => {
+          if (!target) {return PopupComponent.stack.length > 0}
+          return !PopupComponent.findParentPopup();
+        },
+      );
+    }
+    // Child popups will register so closing can cascade
+    // However they won't probably because of the unorthodox DOM stuff
+    // Theorically only one child is possible because popups are all siblings
+    this.children = [];
+    const parentCandidate = PopupComponent.findParentPopup(this.popupArgs.openerElement);
+    if (parentCandidate) {
+      parentCandidate.controlComponent.children.push(this);
     }
   }
 
@@ -817,7 +876,9 @@ class PopupComponent extends BlazeComponent {
     if (opener.classList?.contains?.(this.popupPlaceholderClass())) {
       sizedOpener = opener.parentNode;
     }
-    this.popupArgs.nonPlaceholderOpener = sizedOpener;
+    // in some cases, opener is re-rendered while popup tries to position
+    // better freeze the opener dims
+    this.popupArgs.nonPlaceholderDims = sizedOpener.getBoundingClientRect();
 
     PopupComponent.stack.push(this);
 
@@ -830,21 +891,23 @@ class PopupComponent extends BlazeComponent {
       console.error(`cannot render popup ${this.name}: ${e}`);
       this.destroy();
     }
+
+
   }
 
-  destroy(renderParent) {
-    if (this.detached) {
-      // Avoid loop destroy
-      return;
-    }
+  // userClose is a boolean attached to the component which tells
+  // if the destruction comes from the user, could be useful in callbacks
+  destroy(renderParent, userClose) {
+    if (this.detached) {return}
+    this.userClose = userClose;
     this.detached = true;
-    this.popupArgs?.onDestroy?.call?.(this.innerComponent);
+    for (const child of this.children) {child.destroy()}
     this.observeChild?.disconnect();
 
     // not necesserly removed in order, e.g. multiple cards
     PopupComponent.stack = PopupComponent.stack.filter(e => e !== this);
     if (renderParent) {
-      PopupComponent.refresh();
+      PopupComponent.stack.at(-1).refresh();
     }
 
     // unecessary upon "normal" conditions, but prefer destroy everything
@@ -856,9 +919,9 @@ class PopupComponent extends BlazeComponent {
     }
     this.innerComponent?.removeComponent?.();
     this.outerComponent?.removeComponent?.();
+    this.popupArgs?.afterDestroyed?.(this);
     this.removeComponent();
   }
-
 
   closeWithPlaceholder(parentElement) {
     // adapted from https://stackoverflow.com/questions/52834774/dom-event-when-element-is-removed

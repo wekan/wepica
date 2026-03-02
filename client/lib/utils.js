@@ -967,6 +967,30 @@ Utils = {
     const currentBoard = ReactiveCache.getBoard(boardId);
     return currentBoard ? currentBoard.allowsCardSortingByNumberOnMinicard : false;
   },
+
+  isTitleDefault(title) {
+    // https://github.com/wekan/wekan/issues/4763
+    // https://github.com/wekan/wekan/issues/4742
+    // Translation text for "default" does not work, it returns an object.
+    // When that happens, try use translation "defaultdefault" that has same content of default, or return text "Default".
+    // This can happen, if swimlane does not have name.
+    // Yes, this is fixing the symptom (Swimlane title does not have title)
+    // instead of fixing the problem (Add Swimlane title when creating swimlane)
+    // because there could be thousands of swimlanes, adding name Default to all of them
+    // would be very slow.
+    // Addendum 02/26: as long as translations don't load sometimes, this is edgy because
+    // `defaultdefault` title will be returned, which IMHO is worse than "default". I'll just
+    // check that specific case.
+    if (title === "Default" || (title.startsWith("key 'default") && title.endsWith('returned an object instead of string.'))) {
+      const candidate = TAPi18n.__('defaultdefault');
+      // translation didn't work
+      if (candidate.startsWith("key 'default") && candidate.endsWith('returned an object instead of string.') || candidate === "defaultdefault") {
+        return 'Default';
+      }
+      return candidate;
+    }
+    return title;
+  },
 };
 
 

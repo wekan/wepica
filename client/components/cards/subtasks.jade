@@ -2,96 +2,86 @@ template(name="subtasks")
   h3.card-details-item-title
     i.fa.fa-globe
     | {{_ 'subtasks'}}
+    if $gt currentCard.hiddenSubtasksCount 0
+      span.card-subtasks-hint
+        = currentCard.hiddenSubtasksCount
+        | {{ _ 'subtask-hidden-suffix' }}
   if currentUser.isBoardAdmin
     if toggleDeleteDialog.get
       +subtaskDeleteDialog(subtask = subtaskToDelete)
 
   if currentCard.subtasks
-    .card-subtasks-items
+    .card-subtasks-items.js-subtasks
       each subtask in currentCard.subtasks
-        .subtask-container
+        .subtask-container.js-subtasks-item
           +subtaskDetail(subtask = subtask)
-          if canModifyCard
-            a.subtask-details-menu.js-open-subtask-details-menu(title="{{_ 'subtaskActionsPopup-title'}}")
-              | ☰
-            if currentUser.isBoardAdmin
-              a.js-delete-subtask-item
-                | ❌
-
 
   if canModifyCard
-    +inlinedForm(autoclose=false classNames="js-add-subtask" cardId = cardId)
+    +inlinedForm(autoclose=false classNames="js-add-subtask horizontal" cardId = cardId)
       +addSubtaskItemForm
     else
-      a.js-open-inlined-form(title="{{_ 'add-subtask'}}")
+      a.card-details-item.add-element.js-open-inlined-form(title="{{_ 'add-subtask'}}")
         i.fa.fa-plus
+        i.fa.fa-sticky-note
 
 template(name="subtaskDetail")
-  .js-subtasks.subtask
-    +inlinedForm(classNames="js-edit-subtask-title" subtask = subtask)
-      +editSubtaskItemForm(subtask = subtask)
-    else
-      .subtask-title
+  .subtask
+    .subtask-title.js-subtask-title
+      +inlinedForm(classNames="js-edit-subtask-title horizontal" subtask = subtask)
+        +editSubtaskItemForm(subtask = subtask)
+      else
+        .check-box-container
+          .check-box.materialCheckBox(class="{{#if subtask.getSubtaskFinishedStatus}}is-checked{{/if}}")
         if canModifyCard
-          h2.title.js-open-inlined-form.is-editable
+          .item-title.js-open-inlined-form.is-editable(class="{{#if subtask.getSubtaskFinishedStatus }}is-finished{{/if}}")
             +viewer
               = subtask.title
         else
-          h2.title
+          div(class="{{#if subtask.getSubtaskFinishedStatus }}is-finished{{/if}}")
             +viewer
-                = subtask.title
+              = subtask.title
+      if isMiniScreen
+        span.fa.subtaskitem-handle(class="fa-arrows" title="{{_ 'dragChecklistItem'}}")
+    if canModifyCard
+      .subtask-controls
+        a.subtask-details-menu.js-open-subtask-details-menu(title="{{_ 'subtaskActionsPopup-title'}}")
+          i.fa.fa-bars
 
 template(name="addSubtaskItemForm")
-  textarea.js-add-subtask-item(rows='1' dir="auto")
+  +editor(class="js-edit-subtask-item" rows="1")
+    = subtask.title
   .edit-controls.clearfix
     button.primary.confirm.js-submit-add-subtask-item-form(type="submit") {{_ 'save'}}
     a.js-close-inlined-form
       i.fa.fa-times-thin
 
 template(name="editSubtaskItemForm")
-  textarea.js-edit-subtask-item(rows='1' dir="auto")
-    if $eq type 'item'
-      = item.title
-    else
-      = subtask.title
+  +editor(class="js-edit-subtask-item" rows="1")
+    = subtask.title
   .edit-controls.clearfix
     button.primary.confirm.js-submit-edit-subtask-item-form(type="submit") {{_ 'save'}}
-    a.js-close-inlined-form
-    span(title=createdAt) {{ moment createdAt }}
+    button.negate.js-close-inlined-form
+      i.fa.fa-times-thin
 
 template(name="subtasksItems")
-  .subtasks-items.js-subtasks-items
-    each item in subtasks.items
-      +inlinedForm(classNames="js-edit-subtask-item" item = item subtasks = subtasks)
-        +editSubtaskItemForm(type = 'item' item = item subtasks = subtasks)
-      else
-        +subtaskItemDetail(item = item subtasks = subtasks)
+  if currentCard.subtasks
+    .card-subtasks-items
+      each subtask in currentCard.subtasks
+        +inlinedForm(classNames="js-edit-subtask-item horizontal" item = subtask subtasks = subtasks)
+          +editSubtaskItemForm(type = 'item' item = subtask subtasks = subtasks)
+        else
+          +subtaskItemDetail(item = subtask subtasks = subtasks)
     if canModifyCard
-      +inlinedForm(autoclose=false classNames="js-add-subtask-item" subtasks = subtasks dir="auto")
+      +inlinedForm(autoclose=false classNames="js-add-subtask-item horizontal" subtasks = subtasks dir="auto")
         +addSubtaskItemForm
       else
-        a.add-subtask-item.js-open-inlined-form
+        a.add-subtask-item.card-details-item.js-open-inlined-form
           i.fa.fa-plus
           | {{_ 'add-subtask-item'}}...
 
-template(name='subtaskItemDetail')
-  .js-subtasks-item.subtasks-item
-    if canModifyCard
-      span.check-box-unicode
-        i.fa(class="{{#if item.isFinished}}fa-check-square{{else}}fa-square-o{{/if}}")
-      .item-title.js-open-inlined-form.is-editable(class="{{#if item.isFinished }}is-checked{{/if}}")
-        +viewer
-          = item.title
-    else
-      span.check-box-unicode
-        i.fa(class="{{#if item.isFinished}}fa-check-square{{else}}fa-square-o{{/if}}")
-      .item-title(class="{{#if item.isFinished }}is-checked{{/if}}")
-        +viewer
-          = item.title
-
 template(name="subtaskDeletePopup")
   p {{_ 'confirm-subtask-delete-popup'}}
-  button.js-confirm.negate.full(type="submit") {{_ 'delete'}}
+  button.js-confirm.negate(type="submit") {{_ 'delete'}}
 
 template(name="subtaskActionsPopup")
   ul.pop-over-list
@@ -99,7 +89,8 @@ template(name="subtaskActionsPopup")
       a.js-view-subtask(title="{{ subtask.title }}")
         i.fa.fa-eye
         | {{_ "view-it"}}
-      if currentUser.isBoardAdmin
+    if currentUser.isBoardAdmin
+      li
         a.js-delete-subtask.delete-subtask
           i.fa.fa-trash
-          | {{_ "delete"}} ...
+          | {{_ "delete"}}

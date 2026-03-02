@@ -304,7 +304,7 @@ Cards.attachSchema(
        */
       type: Number,
       decimal: true,
-      defaultValue: -1,
+      defaultValue: 0,
       optional: true,
     },
     type: {
